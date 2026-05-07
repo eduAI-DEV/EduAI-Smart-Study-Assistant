@@ -28,13 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="EduAI: Deep Research Assistant",
-    page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
+st.set_page_config(page_title="EduAI: Deep Research Assistant", page_icon="🎓")
 st.title("🎓 EduAI Research & Homework Assistant")
 st.markdown("Expert in History, Current Affairs, and Academic Research.")
 
@@ -220,7 +214,7 @@ if "agent_executor" not in st.session_state:
 
 # --- SIDEBAR SETUP ---
 with st.sidebar:
-    st.header("⚙️ Configuration")
+    st.header("Setup")
     
     # Authentication Section
     st.subheader("🔐 Authentication")
@@ -265,10 +259,11 @@ with st.sidebar:
     st.divider()
     
     # API Keys Section
-    st.subheader("🔑 API Keys")
+    st.header("Setup")
     openai_api_key = st.text_input("OpenAI API Key", type="password")
     tavily_api_key = st.text_input("Tavily API Key", type="password")
     anthropic_api_key = st.text_input("Anthropic API Key (Optional)", type="password")
+    st.info("This AI uses real-time search to answer questions about history and current events.")
     
     st.divider()
     
@@ -341,7 +336,14 @@ else:
                 api_wrapper_kwargs={'tavily_api_key': tavily_api_key},
                 k=search_results
             )
-            
+
+            # Memory to remember previous questions
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(
+                    memory_key="chat_history", 
+                    return_messages=True
+                )
+
             # Initialize the Agent
             tools = [search_tool]
             agent_executor = initialize_agent(
@@ -359,7 +361,7 @@ else:
                     "Always cite your sources using [Source Name/URL]."
                 )
             )
-            
+
             st.session_state.agent_executor = agent_executor
             
         except Exception as e:
@@ -373,37 +375,27 @@ else:
         with tab1:
             st.subheader("Chat Interface")
             
-            # Display messages
+            # --- CHAT INTERFACE ---
+            if "messages" not in st.session_state:
+                st.session_state.messages = [{"role": "assistant", "content": "Hello! I am EduAI. What topic are we researching today?"}]
+
             for msg in st.session_state.messages:
                 st.chat_message(msg["role"]).write(msg["content"])
-            
-            # Chat input
-            if prompt := st.chat_input("Ask me anything..."):
-                # Check rate limiting
-                if not st.session_state.rate_limiter.is_allowed():
-                    st.error(f"⚠️ Rate limit exceeded! Resets at {st.session_state.rate_limiter.get_reset_time()}")
-                    logger.warning(f"Rate limit exceeded for user: {st.session_state.user_id}")
-                else:
-                    st.session_state.messages.append({"role": "user", "content": prompt})
-                    st.chat_message("user").write(prompt)
-                    
-                    try:
-                        with st.chat_message("assistant"):
-                            st_callback = StreamlitCallbackHandler(st.container())
-                            response = agent_executor.run(
-                                input=prompt,
-                                callbacks=[st_callback]
-                            )
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": response
-                            })
-                            st.write(response)
-                            logger.info(f"Response generated for user: {st.session_state.user_id}")
-                    
-                    except Exception as e:
-                        logger.error(f"Error generating response: {str(e)}")
-                        st.error(f"❌ Error: {str(e)}")
+
+            if prompt := st.chat_input():
+                if not openai_api_key or not tavily_api_key:
+                    st.error("Please add your API keys in the sidebar!")
+                    st.stop()
+
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                st.chat_message("user").write(prompt)
+
+                with st.chat_message("assistant"):
+                    st_callback = StreamlitCallbackHandler(st.container())
+                    response = agent_executor.run(input=prompt, callbacks=[st_callback])
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    st.write(response)
+                    logger.info(f"Response generated for user: {st.session_state.user_id}")
         
         with tab2:
             st.subheader("📚 Conversation History")
